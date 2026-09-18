@@ -26,6 +26,7 @@
 19. [Komplet mini-spil: C vs. pygame vs. Python-curses](#19-komplet-mini-spil-c-vs-pygame-vs-python-curses)
 20. [Typiske fejl](#20-typiske-fejl)
 21. [Hurtig-reference](#21-hurtig-reference)
+22. [CDK – Curses Development Kit](#22-cdk--curses-development-kit)
 
 ---
 
@@ -1284,4 +1285,120 @@ curses.wrapper(main)    # klarer initscr, cbreak, noecho, keypad og endwin for d
 
 ---
 
-*Resten af HOWTO'en (kapitel 19–20) handler om widget-biblioteker som CDK og `dialog`, og indeholder små "just for fun"-programmer (Game of Life, Tårnene i Hanoi, otte-dronninger, et skriveprogram m.fl.). De er gode at kigge i, når du har styr på syntaksen herover.*
+## 22. CDK – Curses Development Kit
+
+**Problem:** Panel, menu og form giver dig byggeklodser, men du skal stadig selv samle "rigtige" widgets som dialogbokse, kalendere og skydere. **CDK** ("Curses Development Kit") er et tredjeparts-bibliotek oven på ncurses, der leverer disse færdigbyggede – lidt ligesom `pygame_gui` eller `tkinter` giver dig widgets oven på et rent tegne-lag.
+
+```c
+#include <cdk.h>
+/* gcc prog.c -o prog -lcdk -lncurses */
+```
+
+> CDK er ikke en del af selve ncurses-pakken. På Debian/Ubuntu hedder pakken `libcdk5-dev` (`sudo apt install libcdk5-dev`). Header og lib kan ligge i `/usr/include/cdk/` – tjek evt. `pkg-config --cflags --libs cdk` hvis linkeren ikke finder den.
+
+### Navngivningsmønster
+
+CDK genbruger idéen fra [kapitel 5](#5-navngivningsreglen-den-vigtigste-side-i-guiden): hver widget har tre faste funktioner, bare med widgettens navn i stedet for `w`/`mv`:
+
+| Mønster | Eksempel (Dialog) | Hvad |
+|---|---|---|
+| `newCDK<Widget>(...)` | `newCDKDialog(...)` | Opret widgetten |
+| `activateCDK<Widget>(widget, ...)` | `activateCDKDialog(dialog, 0)` | Vis den og vent på brugerens svar |
+| `destroyCDK<Widget>(widget)` | `destroyCDKDialog(dialog)` | Frigør hukommelsen |
+
+### Skelettet i et CDK-program
+
+```c
+#include <cdk.h>
+
+int main(void)
+{
+    WINDOW *cursesWin;
+    CDKSCREEN *cdkScreen;
+
+    cursesWin = initscr();               /* almindelig ncurses-start   */
+    cdkScreen = initCDKScreen(cursesWin); /* CDK "pakker ind" om stdscr */
+    initCDKColor();                       /* CDK's egen farve-opsætning */
+
+    /* ... opret og aktivér widgets her ... */
+
+    destroyCDKScreen(cdkScreen);
+    endCDK();                             /* svarer til endwin()        */
+    return 0;
+}
+```
+
+`initCDKScreen`/`destroyCDKScreen` + `endCDK()` er CDK's svar på `initscr()`/`endwin()` – kald dem i stedet for (ikke i tillæg til) at bruge rå ncurses-opsætning.
+
+### Eksempel: en simpel dialogboks
+
+```c
+#include <cdk.h>
+
+int main(void)
+{
+    WINDOW *cursesWin = initscr();
+    CDKSCREEN *cdkScreen = initCDKScreen(cursesWin);
+    initCDKColor();
+
+    char *besked[3];
+    besked[0] = "<C>Hej fra CDK!";
+    besked[1] = "";
+    besked[2] = "<C>Tryk Enter for at fortsætte";
+
+    char *knapper[2];
+    knapper[0] = "OK";
+    knapper[1] = "Annuller";
+
+    CDKDIALOG *dialog = newCDKDialog(cdkScreen, CENTER, CENTER,
+                                      besked, 3,
+                                      knapper, 2,
+                                      A_REVERSE,
+                                      TRUE, TRUE, FALSE);
+
+    int valg = activateCDKDialog(dialog, 0);   /* 0 = index på det valgte knap */
+
+    destroyCDKDialog(dialog);
+    destroyCDKScreen(cdkScreen);
+    endCDK();
+
+    printf("Du valgte knap nummer %d\n", valg);
+    return 0;
+}
+```
+
+`<C>` foran en tekstlinje er CDK's egen lille markup-sprog til at centrere/farve tekst i widgets – ikke almindelig C-syntaks. Se `man cdk_display` for hele syntaksen (`</B>` fed, `</U>` understreget, `</31>` farve nr. 31 osv.).
+
+### Udvalgte widgets
+
+| Widget | `new`-funktion | Bruges til |
+|---|---|---|
+| Dialog | `newCDKDialog` | Besked + valgbare knapper |
+| Entry | `newCDKEntry` | Ét linje tekstinput (som et `form`-felt, men færdigt) |
+| Alphalist | `newCDKAlphalist` | Autocomplete-liste |
+| Scroll | `newCDKScroll` | Scrollbar liste af punkter (som `menu`, men enklere) |
+| Selection | `newCDKSelection` | Liste med flervalg (afkrydsning) |
+| Calendar | `newCDKCalendar` | Kalender til datovalg |
+| Slider / Hslider / Fslider | `newCDKSlider` m.fl. | Numerisk værdi med en "håndtag" |
+| Matrix | `newCDKMatrix` | Regneark-lignende gitter |
+| Graph / Histogram | `newCDKGraph` / `newCDKHistogram` | Simple data-grafer i terminalen |
+| Viewer | `newCDKViewer` | Rul gennem en fil/tekst (som `less`) |
+| Label | `newCDKLabel` | Statisk tekstboks |
+| Marquee | `newCDKMarquee` | Rullende tekst |
+
+Alle følger samme mønster: `newCDK<X>(cdkScreen, ...opsætning..., boxed)` → `activateCDK<X>(widget, NULL)` → læs resultatet med `getCDK<X>Value`/tilsvarende → `destroyCDK<X>(widget)`.
+
+### CDK vs. panel/menu/form
+
+| | ncurses (panel/menu/form) | CDK |
+|---|---|---|
+| Niveau | Byggeklodser – du samler selv | Færdige widgets |
+| Udseende | Du styrer alt selv | Fast, "CDK-agtigt" look (kan farvelægges) |
+| Afhængighed | Del af ncurses-familien | Separat bibliotek, skal installeres selv |
+| Svarer til i pygame | At tegne sine egne knapper/felter | `pygame_gui`/`tkinter`-widgets |
+
+> Tommelfingerregel: Skal du bygge noget helt specielt (fx et spil), er rå ncurses/panel bedst. Skal du hurtigt lave et konfigurations- eller installationsprogram med dialogbokse, er CDK (eller `dialog`) hurtigere.
+
+---
+
+*Resten af HOWTO'en (kapitel 19–20) handler bl.a. om `dialog`-programmet og indeholder små "just for fun"-programmer (Game of Life, Tårnene i Hanoi, otte-dronninger, et skriveprogram m.fl.). De er gode at kigge i, når du har styr på syntaksen herover.*
